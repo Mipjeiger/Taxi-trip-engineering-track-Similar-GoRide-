@@ -1,0 +1,27 @@
+
+MODEL SUMMARY - 2026-03-20 22:58:39
+============================================================
+
+Neural Network Models:
+  - model_time_nn.h5: Predicts Avg CTAT
+  - model_price_nn.h5: Predicts Booking Value
+
+Traditional ML Models:
+  - best_models_trip.pkl: Multiple algorithms for time prediction
+  - best_models_price.pkl: Multiple algorithms for price prediction
+
+Scalers & Encoders:
+  - scaler.pkl: Feature scaler
+  - le_pickup.pkl: Pickup location encoder
+  - le_drop.pkl: Drop location encoder
+
+Configuration:
+  - features.pkl: Model input features list
+  - features.csv: Feature details
+
+Performance Metrics:
+  - results_trip.csv: CTAT model performance
+  - results_price.csv: Price model performance
+
+Total Features: 25
+Model Directory: /Users/miftahhadiyannoor/Documents/Gojek-Project/ml-engineer/models
