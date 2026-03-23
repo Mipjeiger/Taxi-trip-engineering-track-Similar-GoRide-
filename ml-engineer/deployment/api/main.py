@@ -91,3 +91,4 @@ def health_check():
 app.get("/features")
 def get_features():
     return {"features": feature_list}, 200
+
