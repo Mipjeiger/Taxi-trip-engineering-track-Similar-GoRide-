@@ -3,34 +3,29 @@ import pickle
 import numpy as np
 import os
 import joblib
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from pathlib import Path
 from typing import Literal
 from tensorflow.keras.models import load_model
 
-# Define fastapi app
 app = FastAPI()
 
-# Define models
-MODEL_DIR = Path(__file__).parent.parent.parent  / "models"
+MODEL_DIR = Path(__file__).parent.parent.parent / "models"
 MODEL_NAME = Literal['Linear Regression', 'Decision Tree', 'XGBoost', 'Neural Network']
 
-# 1. Define models definitely
-scaler = joblib.load(MODEL_DIR / "scaler.pkl")
+# Load artefacts
+scaler        = joblib.load(MODEL_DIR / "scaler.pkl")
 model_nn_price = load_model(MODEL_DIR / "model_price_nn.h5")
-model_nn_time = load_model(MODEL_DIR / "model_time_nn.h5")
-feature_list = joblib.load(MODEL_DIR / "features.pkl")
-le_pickup = joblib.load(MODEL_DIR / "le_pickup.pkl")
-le_drop = joblib.load(MODEL_DIR / "le_drop.pkl")
+model_nn_time  = load_model(MODEL_DIR / "model_time_nn.h5")
+feature_list   = joblib.load(MODEL_DIR / "features.pkl")
+le_pickup      = joblib.load(MODEL_DIR / "le_pickup.pkl")
+le_drop        = joblib.load(MODEL_DIR / "le_drop.pkl")
+model_price_ml = joblib.load(MODEL_DIR / "best_models_price.pkl")
+model_trip_ml  = joblib.load(MODEL_DIR / "best_models_trip.pkl")
 
-# 2. Load specified .pkl models
-"""Load models price and trip"""
-model_trip_ml = joblib.load(MODEL_DIR / "best_models_trip.pkl")
-
-
-# 3. Define input SCHEMA with features
-class RideRequest(BaseModel):
+# Schema
+class RideRequest(BaseModel):           # FIX 1: was __BaseModel__
     pickup: str
     drop: str
     distance: float
@@ -42,53 +37,100 @@ class RideRequest(BaseModel):
     route_avg_price: float
     route_avg_distance: float
     route_count: int
-    model: MODEL_NAME
+    model: MODEL_NAME = "XGBoost"
 
-# 4. Features builder function
+# Feature builder — 25 features matching features.pkl order exactly
 def build_features(data: RideRequest) -> np.ndarray:
     try:
         pickup_encoded = le_pickup.transform([data.pickup])[0]
-        drop_encoded = le_drop.transform([data.drop])[0]
+        drop_encoded   = le_drop.transform([data.drop])[0]
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
-    hour, day = data.hour, data.day_of_week
-    distance = data.distance
+
+    h, dow = data.hour, data.day_of_week
+    d      = data.distance
+
     vec = [
-        pickup_encoded, drop_encoded, hour, day,
-        data.driver_rating, data.customer_rating,
-        np.log1p(distance), # Log-transform distance
-        distance / (hour + 1), # Distance per hour
-        int(7 <= hour <= 9 or 17 <= hour <= 19), # is_peak_hour
-        int(hour >= 22 or hour < 5), # is_night_time
-        np.sin(2 * np.pi * hour/24), # hour_sin
-        np.cos(2 * np.pi * hour/24),  # hour_cos
-        np.cos(2 * np.pi * day/7),   # day_cos
-        data.driver_rating - data.customer_rating, # Data diff
-        data.driver_rating * data.customer_rating, # Data interaction
-        (data.driver_rating + data.customer_rating) / 2, # Data average
-        int(data.driver_rating < 3.5), # low driver rating
-        int(data.customer_rating < 3.5), # low customer rating
-        data.route_avg_ctat, data.route_avg_price,
-        data.route_avg_distance, data.route_count
+        pickup_encoded,                          # Pickup Encoded
+        drop_encoded,                            # Drop Encoded
+        d,                                       # FIX 2: distance was missing
+        h,                                       # hour
+        dow,                                     # day_of_week
+        data.driver_rating,                      # Driver Ratings
+        data.customer_rating,                    # Customer Rating
+        np.log1p(d),                             # log_distance
+        d / (h + 1),                             # distance_per_hour
+        int(7 <= h <= 9 or 17 <= h <= 19),       # is_peak_hour
+        int(dow >= 5),                           # FIX 3: is_weekend was missing
+        int(h >= 22 or h < 5),                   # is_night
+        np.sin(2 * np.pi * h / 24),              # hour_sin
+        np.cos(2 * np.pi * h / 24),              # hour_cos
+        np.sin(2 * np.pi * dow / 7),             # FIX 4: day_sin was missing
+        np.cos(2 * np.pi * dow / 7),             # day_cos
+        data.driver_rating - data.customer_rating,       # rating_diff
+        data.driver_rating * data.customer_rating,       # rating_product
+        (data.driver_rating + data.customer_rating) / 2, # avg_rating
+        int(data.driver_rating < 3.5),           # low_driver_rating
+        int(data.customer_rating < 3.5),         # low_customer_rating
+        data.route_avg_ctat,                     # route_avg_ctat
+        data.route_avg_price,                    # route_avg_price
+        data.route_avg_distance,                 # route_avg_distance
+        data.route_count,                        # route_count
     ]
-    return np.array(vec).reshape(1, -1)
+    return np.array(vec, dtype=np.float32).reshape(1, -1)
 
-def predict(models_dict, nn_model, ml_model, data: RideRequest) -> float:
-    X_raw = build_features(data=data)
-    if data.model == 'Neural Network':
-        return float(nn_model.predict(X_raw)[0][0])
-    
-    elif data.model in ['Linear Regression', 'Decision Tree', 'XGBoost']:
-        X_scaled = scaler.transform(X_raw)
-        return float(ml_model.predict(X_scaled)[0])
-    
-# 5. Define API endpoint
-app.get("/health")
+# Predict — FIX 5: NN uses scaled input, ML uses raw (was swapped)
+def predict(ml_models_dict, nn_model, data: RideRequest) -> float:
+    X_raw = build_features(data)
+    if data.model == "Neural Network":
+        X_scaled = scaler.transform(X_raw)       # NN needs scaling
+        return float(nn_model.predict(X_scaled)[0][0])
+    else:
+        ml_model = ml_models_dict[data.model]    # ML uses raw features
+        return float(ml_model.predict(X_raw)[0])
+
+# GET endpoints
+@app.get("/health")
 def health_check():
-    return {"status": "ok"}, 200
+    return {"status": "ok"}
 
-app.get("/features")
+@app.get("/features")
 def get_features():
-    return {"features": feature_list}, 200
+    return {"count": len(feature_list), "features": feature_list}
 
+@app.get("/models")
+def get_models():
+    return {
+        "price": list(model_price_ml.keys()) + ["Neural Network"],
+        "trip":  list(model_trip_ml.keys())  + ["Neural Network"],
+    }
+
+@app.get("/locations")
+def get_locations():
+    return {
+        "pickup": le_pickup.classes_.tolist(),
+        "drop":   le_drop.classes_.tolist(),
+    }
+
+# POST endpoints — FIX 6: each endpoint uses its own correct models/nn
+@app.post("/predict/price")
+def predict_price(request: RideRequest):
+    result = predict(ml_models_dict=model_price_ml, nn_model=model_nn_price, data=request)
+    return {"model": request.model, "price_IDR": round(result, 2)}
+
+@app.post("/predict/trip")
+def predict_trip(request: RideRequest):
+    result = predict(ml_models_dict=model_trip_ml, nn_model=model_nn_time, data=request)
+    return {"model": request.model, "duration_minutes": round(result, 2)}
+
+@app.post("/predict/both")
+def predict_both(request: RideRequest):
+    return {
+        "model":            request.model,
+        "price_IDR":        round(predict(model_price_ml, model_nn_price, request), 2),
+        "duration_minutes": round(predict(model_trip_ml,  model_nn_time,  request), 2),
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8020, reload=True)

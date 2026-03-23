@@ -2,3 +2,4 @@
 workflow-start.md
 workflow-automation.md
 **.DS_Store
+**__pycache__/
