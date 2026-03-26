@@ -1,26 +1,31 @@
 import tensorflow as tf
 import pickle
 import numpy as np
+import time
+import logging
 import os
 import joblib
+import uuid
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 from tensorflow.keras.models import load_model
 
-app = FastAPI()
 
 MODEL_DIR = Path(__file__).parent.parent.parent / "models"
+MODEL_DIR_2 = Path(__file__).parent.parent.parent / "models_2"
 MODEL_NAME = Literal['Linear Regression', 'Decision Tree', 'XGBoost', 'Neural Network']
 
+app = FastAPI(title="Ride Prediction API", version="1.0")
+
 # Load artefacts
-scaler        = joblib.load(MODEL_DIR / "scaler.pkl")
-model_nn_price = load_model(MODEL_DIR / "model_price_nn.h5")
-model_nn_time  = load_model(MODEL_DIR / "model_time_nn.h5")
-feature_list   = joblib.load(MODEL_DIR / "features.pkl")
-le_pickup      = joblib.load(MODEL_DIR / "le_pickup.pkl")
-le_drop        = joblib.load(MODEL_DIR / "le_drop.pkl")
+scaler = joblib.load(MODEL_DIR_2 / ["scaler_minmax.pkl", "scaler_ultra.pkl"][0])  # FIX 0: was scaler.pkl, now we have two scalers for price and time
+model_keras_price = load_model(MODEL_DIR / "model_price_improved.keras")
+model_keras_time  = load_model(MODEL_DIR / "model_time_improved.keras")
+feature_list   = joblib.load(MODEL_DIR_2 / ["features_new.pkl", "features_ultra.pkl", "features.pkl"][0])
+le_pickup      = joblib.load(MODEL_DIR_2 / "le_pickup.pkl")
+le_drop        = joblib.load(MODEL_DIR_2 / "le_drop.pkl")
 model_price_ml = joblib.load(MODEL_DIR / "best_models_price.pkl")
 model_trip_ml  = joblib.load(MODEL_DIR / "best_models_trip.pkl")
 
@@ -87,7 +92,16 @@ def predict(ml_models_dict, nn_model, data: RideRequest) -> float:
         return float(nn_model.predict(X_scaled)[0][0])
     else:
         ml_model = ml_models_dict[data.model]    # ML uses raw features
-        return float(ml_model.predict(X_raw)[0])
+        if ml_model is None:
+            raise HTTPException(status_code=400, detail=f"Model '{data.model}' not found.")
+        pred = ml_model.predict(X_raw)[0]
+
+    return float(pred)
+
+# Generic POST Handler
+def handle_prediction(req: RideRequest, ml_models, nn_model, unit: str):
+    request_id = str(uuid.uuid4())
+    start_time = time.time()
 
 # GET endpoints
 @app.get("/health")

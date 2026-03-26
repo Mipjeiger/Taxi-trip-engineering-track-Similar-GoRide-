@@ -10,5 +10,9 @@
 - Navigating with prediction on the road with proper
     - Best price chosen
     - Best track on the road
+- Get models to predict and embed
+    - Machine learning models (Supervised learning ML models)
+    - Deep learning models (Neural Network models)
 - Deploy to API -> Prediction result on API
     ![alt text](images/E427ECCA-417B-48E3-B76A-28FEEF4D43A5.png)
+- 
