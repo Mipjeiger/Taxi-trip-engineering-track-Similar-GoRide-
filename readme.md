@@ -18,6 +18,8 @@
     ![alt text](images/FE8C72D8-FB62-4205-8568-D82EA975BF00.png)
     - google maps previews
     ![alt text](images/A38D7ED6-0251-49E2-B116-63FD9E44A79E.png)
+    - plot heatmap for maps traffic
+    ![alt text](images/D2DDAEA0-BFC3-4ED8-966E-C536FC196278.png)
 - Deploy to API -> Prediction result on API
     ![alt text](images/E427ECCA-417B-48E3-B76A-28FEEF4D43A5.png)
 - 
